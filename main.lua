@@ -211,35 +211,70 @@ end
 
 ---- { Support for multiple-inclusive search and simple blocker(by hkhuang)
 
+local function IsIndexInForbiddenRange(index, msg)
+    local init = 1
+    while true do
+        local s, e = string.find(msg, "|H.-|h", init)
+        if not s then break end
+        if index >= s and index <= e then return true end
+        init = e + 1
+    end
+    init = 1
+    while true do
+        local s, e = string.find(msg, "|c%x%x%x%x%x%x%x%x", init)
+        if not s then break end
+        if index >= s and index <= e then return true end
+        init = e + 1
+    end
+    init = 1
+    while true do
+        local s, e = string.find(msg, "|T.-|t", init)
+        if not s then break end
+        if index >= s and index <= e then return true end
+        init = e + 1
+    end
+    return false
+end
 
+local function FindValidMatch(msgLow, pattern, msgOriginal)
+    local init = 1
+    while true do
+        local s, e = string.find(msgLow, pattern, init)
+        if not s then return nil, nil end
+        if not IsIndexInForbiddenRange(s, msgOriginal) and not IsIndexInForbiddenRange(e, msgOriginal) then
+            return s, e
+        end
+        init = s + 1
+    end
+end
 
-local function _hfind(msglow, search)
+local function _hfind(msglow, search, msgOriginal)
     local fstart, fend
     if string.find(search,"[&%-]") then
         if not searchcache[search] then addToCache(search) end
         local t = searchcache[search]
         if t.isBlocker then return nil, nil end
         for _, k in pairs(t.block) do
-            fstart = string.find(msglow, k)
+            fstart = FindValidMatch(msglow, k, msgOriginal)
             if fstart then return nil, nil end
         end
         for _, k in pairs(t.match) do
-            fstart, fend = string.find(msglow, k)
+            fstart, fend = FindValidMatch(msglow, k, msgOriginal)
             if not fstart then return nil, nil end
         end
         return fstart, fend
     end
-    return string.find(msglow, search)    
+    return FindValidMatch(msglow, search, msgOriginal)    
 end
 
-local function ShouldBlock(msg)
+local function ShouldBlock(msg, msgOriginal)
 
     for _, data in pairs(CChatNotifier_data) do
         if data.active then
             for word, search in pairs(data.words) do
                 if string.sub(search, 1, 1) == "-" and not string.find(search,"&") then
                     for k in string.gmatch(search, "-([^%-]+)") do
-                        if string.find(msg, k) then 
+                        if FindValidMatch(msg, k, msgOriginal) then 
                             return true 
                         end
                     end                    
@@ -268,12 +303,12 @@ end
 -- @param channelName If source is CHANNEL this is the channel name
 local function SearchMessage(msg, from, source, guid)
     local msglow = string.lower(msg);
-    if ShouldBlock(msglow) then return end
+    if ShouldBlock(msglow, msg) then return end
     local fstart, fend;
     for _, data in pairs(CChatNotifier_data) do
         if data.active then
             for word, search in pairs(data.words) do
-                fstart, fend = _hfind(msglow, search);
+                fstart, fend = _hfind(msglow, search, msg);
                 if fstart ~= nil then
                     if GlobalIgnoreDB and has_value(GlobalIgnoreDB.ignoreList, from)  then 
                         print("error : ignorelist ignored")
